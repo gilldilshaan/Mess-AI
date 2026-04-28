@@ -1,0 +1,13 @@
+import fs from "fs";
+
+const saveData = (newData) => {
+  let data = [];
+
+  if (fs.existsSync("data.json")) {
+    data = JSON.parse(fs.readFileSync("data.json"));
+  }
+
+  data.push(newData);
+
+  fs.writeFileSync("data.json", JSON.stringify(data, null, 2));
+};
