@@ -413,8 +413,10 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
       Number(best.score || 0) < minScore ||
       (second && Number(best.score || 0) - Number(second.score || 0) < minMargin)
     ) {
-      return res.status(422).json({
-        error: "No food detected. Upload a clear meal photo (top view, good light).",
+      return res.json({
+        food: null,
+        needsManual: true,
+        message: "Couldn’t confidently identify the meal from this photo. Type the meal name to continue.",
         alternatives: top
       });
     }
@@ -484,6 +486,68 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
       error: "Scan failed",
       details: err.message
     });
+  }
+});
+
+app.post("/scan-food-name", authRequired, async (req, res) => {
+  try {
+    const food = String(req.body?.food || "").trim();
+    if (!food) return res.status(400).json({ error: "Food name is required" });
+
+    let nutrition;
+    try {
+      nutrition = await getNutritionFromSpoonacular(food);
+    } catch {
+      nutrition = await getNutrition(food);
+    }
+
+    const advice = generateAdvice({
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs
+    });
+
+    const { synergyBooster } = await generateMealRecommendation();
+
+    const user = await User.findById(req.userId).lean();
+    const profile = user?.profile || null;
+    const allergyMatches = matchAllergies(food, profile?.allergies || []);
+
+    await Scan.create({
+      userId: req.userId,
+      food,
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs,
+      fats: nutrition.fats || 0
+    });
+
+    const foodList = [
+      {
+        name: food,
+        calories: nutrition.calories,
+        ingredients: food
+      }
+    ];
+    const filteredFood = filterFood(foodList, profile);
+
+    return res.json({
+      food,
+      filteredFood,
+      allergyMatches,
+      alternatives: [],
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs,
+      message: advice.message,
+      recommendation: advice.recommendation,
+      healthRating: advice.healthRating,
+      synergyBooster,
+      source: nutrition.source
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Scan failed" });
   }
 });
 
