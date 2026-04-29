@@ -2,7 +2,8 @@ const activityMap = {
   sedentary: 1.2,
   light: 1.375,
   moderate: 1.55,
-  active: 1.725
+  active: 1.725,
+  very_active: 1.9
 };
 
 export async function fetchCurrentTemperatureC(city) {
@@ -39,6 +40,8 @@ export function calculateTDEE(profile) {
     return null;
   }
 
+  const goal = String(profile.goal || "maintain").toLowerCase();
+
   let bmr;
 
   if (String(profile.gender).toLowerCase() === "male") {
@@ -51,9 +54,9 @@ export function calculateTDEE(profile) {
 
   let tdee = bmr * activityMultiplier;
 
-  if (profile.goal === "loss") {
+  if (goal === "loss" || goal === "lose") {
     tdee -= 500;
-  } else if (profile.goal === "gain") {
+  } else if (goal === "gain") {
     tdee += 500;
   }
 

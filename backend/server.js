@@ -127,12 +127,23 @@ app.get("/auth/me", authRequired, async (req, res) => {
   }
 });
 
+app.get("/get-user", authRequired, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: "Not found" });
+    const u = user.toJSON();
+    return res.json({ user: { ...u, ...(u.profile || {}) }, tdee: calculateTDEE(user.profile) });
+  } catch {
+    return res.status(500).json({ error: "Failed" });
+  }
+});
+
 // 🚀 SET USER PROFILE
 app.post("/set-user", authRequired, async (req, res) => {
   try {
     const { age, gender, height, weight, activity, goal, allergies, city } = req.body;
 
-    if (!age || !gender || !height || !weight || !activity) {
+    if (age == null || !gender || height == null || weight == null || !activity) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -167,6 +178,42 @@ app.post("/set-user", authRequired, async (req, res) => {
   } catch (err) {
     console.error("SET USER ERROR:", err);
     res.status(500).json({ error: "Failed to save user" });
+  }
+});
+
+app.get("/dashboard", authRequired, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: "Not found" });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const items = await Scan.find({
+      createdAt: { $gte: today },
+      userId: req.userId
+    });
+
+    const totals = items.reduce(
+      (acc, it) => {
+        acc.calories += it.calories || 0;
+        acc.protein += it.protein || 0;
+        acc.carbs += it.carbs || 0;
+        return acc;
+      },
+      { calories: 0, protein: 0, carbs: 0 }
+    );
+
+    const ai = getAIRecommendation(totals);
+
+    return res.json({
+      user: { ...user.toJSON(), ...(user.toJSON().profile || {}) },
+      items,
+      totals,
+      ai
+    });
+  } catch {
+    return res.status(500).json({ error: "Dashboard failed" });
   }
 });
 
