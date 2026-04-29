@@ -12,7 +12,7 @@ import { getAIRecommendation } from "./ai.js";
 import { detectFood } from "./detector.js";
 import { getNutritionFromSpoonacular } from "./spoonacular.js";
 import { getNutrition } from "./openfoodfacts.js";
-import { generateAdvice } from "./advice.js";
+import { generateAdvice, generateMealRecommendation } from "./advice.js";
 
 import Scan from "./models/Scan.js";
 import User from "./models/User.js";
@@ -307,6 +307,8 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
       carbs: nutrition.carbs
     });
 
+    const { synergyBooster } = await generateMealRecommendation();
+
     const user = await User.findById(req.userId).lean();
     const profile = user?.profile || null;
 
@@ -341,6 +343,7 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
       message: advice.message,
       recommendation: advice.recommendation,
       healthRating: advice.healthRating,
+      synergyBooster,
       source: nutrition.source
     });
 
