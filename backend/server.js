@@ -401,7 +401,25 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
 
   try {
     const top = detectFood(req, 3);
-    const food = top[0].label;
+    const best = top?.[0] || null;
+    const second = top?.[1] || null;
+
+    const minScore = 10;
+    const minMargin = 4;
+
+    if (
+      !best ||
+      best.label === "unknown food" ||
+      Number(best.score || 0) < minScore ||
+      (second && Number(best.score || 0) - Number(second.score || 0) < minMargin)
+    ) {
+      return res.status(422).json({
+        error: "No food detected. Upload a clear meal photo (top view, good light).",
+        alternatives: top
+      });
+    }
+
+    const food = best.label;
 
     let nutrition;
 
