@@ -163,7 +163,7 @@ app.post("/set-user", authRequired, async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.userId,
       { $set: { profile, city: String(city || ""), currentTemperature, dailyWaterLiters } },
-      { new: true }
+      { returnDocument: "after" }
     );
     if (!user) return res.status(404).json({ error: "Not found" });
 
