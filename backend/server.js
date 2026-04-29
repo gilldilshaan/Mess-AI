@@ -18,7 +18,13 @@ import { generateAdvice, generateMealRecommendation } from "./advice.js";
 import Scan from "./models/Scan.js";
 import User from "./models/User.js";
 
-import { calculateDailyWaterLiters, calculateTDEE, fetchCurrentTemperatureC, filterFood } from "./userService.js";
+import {
+  calculateDailyWaterLiters,
+  calculateTDEE,
+  fetchCurrentTemperatureC,
+  filterFood,
+  matchAllergies
+} from "./userService.js";
 
 const app = express();
 
@@ -416,6 +422,7 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
 
     const user = await User.findById(req.userId).lean();
     const profile = user?.profile || null;
+    const allergyMatches = matchAllergies(food, profile?.allergies || []);
 
     // 💾 SAVE
     await Scan.create({
@@ -441,6 +448,7 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
     res.json({
       food,
       filteredFood,
+      allergyMatches,
       alternatives: top,
       calories: nutrition.calories,
       protein: nutrition.protein,

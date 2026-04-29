@@ -6,6 +6,43 @@ const activityMap = {
   very_active: 1.9
 };
 
+const ALLERGY_SYNONYMS = {
+  dairy: ["milk", "butter", "ghee", "cheese", "paneer", "cream", "curd", "yogurt", "lassi", "whey", "casein", "lactose"],
+  peanut: ["peanut", "groundnut", "mungfali"],
+  nuts: ["nut", "almond", "cashew", "pistachio", "walnut", "hazelnut"],
+  egg: ["egg", "omelette", "omelet"],
+  soy: ["soy", "soya", "tofu", "soybean"],
+  gluten: ["gluten", "wheat", "maida", "bread", "pasta"],
+  fish: ["fish", "salmon", "tuna"],
+  shellfish: ["shrimp", "prawn", "crab", "lobster"]
+};
+
+function normalizeText(s) {
+  return String(s || "").toLowerCase();
+}
+
+function getAllergyKeywords(allergy) {
+  const a = normalizeText(allergy).trim();
+  if (!a) return [];
+  const synonyms = ALLERGY_SYNONYMS[a] || [];
+  return Array.from(new Set([a, ...synonyms].map((x) => normalizeText(x).trim()).filter(Boolean)));
+}
+
+export function matchAllergies(text, allergies) {
+  const hay = normalizeText(text);
+  const list = Array.isArray(allergies) ? allergies : [];
+  const triggered = [];
+
+  for (const raw of list) {
+    const a = normalizeText(raw).trim();
+    if (!a) continue;
+    const keywords = getAllergyKeywords(a);
+    if (keywords.some((k) => hay.includes(k))) triggered.push(a);
+  }
+
+  return Array.from(new Set(triggered));
+}
+
 export async function fetchCurrentTemperatureC(city) {
   const safeCity = String(city || "").trim();
   if (!safeCity) return 25;
@@ -72,15 +109,12 @@ export function filterFood(foodList, profile) {
   if (!tdee) return foodList;
   const perMealCalories = tdee / 3;
 
-  const allergies = (profile.allergies || []).map(a => String(a).toLowerCase());
+  const allergies = Array.isArray(profile.allergies) ? profile.allergies : [];
 
   return foodList.filter(food => {
     const ingredients = food.ingredients?.toLowerCase() || "";
 
-    // ❌ Allergy check
-    const hasAllergy = allergies.some(allergy =>
-      ingredients.includes(allergy)
-    );
+    const hasAllergy = matchAllergies(ingredients, allergies).length > 0;
 
     if (hasAllergy) return false;
 
