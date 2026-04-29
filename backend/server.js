@@ -14,6 +14,7 @@ import { getNutritionFromSpoonacular } from "./spoonacular.js";
 import { getNutrition } from "./openfoodfacts.js";
 import { lookupNutrition } from "./nutrition.js";
 import { generateAdvice, generateMealRecommendation } from "./advice.js";
+import { classifyFoodWithHF } from "./vision.js";
 
 import Scan from "./models/Scan.js";
 import User from "./models/User.js";
@@ -55,6 +56,7 @@ function authRequired(req, res, next) {
 
 // 🚀 MULTER
 const upload = multer({
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }
 });
 
@@ -400,28 +402,48 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
   }
 
   try {
-    const top = detectFood(req, 3);
-    const best = top?.[0] || null;
-    const second = top?.[1] || null;
+    const hf = await classifyFoodWithHF({ imageBuffer: req.file.buffer, topK: 5 });
+    const hfBest = hf?.[0] || null;
+    const hfSecond = hf?.[1] || null;
 
-    const minScore = 10;
-    const minMargin = 4;
+    const hfMinScore = Number(process.env.HF_MIN_SCORE || 0.55);
+    const hfMinMargin = Number(process.env.HF_MIN_MARGIN || 0.07);
+
+    let food = null;
+    let alternatives = [];
 
     if (
-      !best ||
-      best.label === "unknown food" ||
-      Number(best.score || 0) < minScore ||
-      (second && Number(best.score || 0) - Number(second.score || 0) < minMargin)
+      hfBest &&
+      Number(hfBest.score || 0) >= hfMinScore &&
+      (!hfSecond || Number(hfBest.score || 0) - Number(hfSecond.score || 0) >= hfMinMargin)
     ) {
-      return res.json({
-        food: null,
-        needsManual: true,
-        message: "Couldn’t confidently identify the meal from this photo. Type the meal name to continue.",
-        alternatives: top
-      });
-    }
+      food = hfBest.label;
+      alternatives = hf.slice(0, 3);
+    } else {
+      const top = detectFood(req, 3);
+      const best = top?.[0] || null;
+      const second = top?.[1] || null;
 
-    const food = best.label;
+      const minScore = Number(process.env.NAME_MIN_SCORE || 10);
+      const minMargin = Number(process.env.NAME_MIN_MARGIN || 4);
+
+      if (
+        !best ||
+        best.label === "unknown food" ||
+        Number(best.score || 0) < minScore ||
+        (second && Number(best.score || 0) - Number(second.score || 0) < minMargin)
+      ) {
+        return res.json({
+          food: null,
+          needsManual: true,
+          message: "Couldn’t confidently identify the meal. Pick a suggestion or type the meal name.",
+          alternatives: top
+        });
+      }
+
+      food = best.label;
+      alternatives = top;
+    }
 
     let nutrition;
 
@@ -469,7 +491,7 @@ app.post("/scan-food", authRequired, upload.single("image"), async (req, res) =>
       food,
       filteredFood,
       allergyMatches,
-      alternatives: top,
+      alternatives,
       calories: nutrition.calories,
       protein: nutrition.protein,
       carbs: nutrition.carbs,
