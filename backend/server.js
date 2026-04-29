@@ -12,6 +12,7 @@ import { getAIRecommendation } from "./ai.js";
 import { detectFood } from "./detector.js";
 import { getNutritionFromSpoonacular } from "./spoonacular.js";
 import { getNutrition } from "./openfoodfacts.js";
+import { lookupNutrition } from "./nutrition.js";
 import { generateAdvice, generateMealRecommendation } from "./advice.js";
 
 import Scan from "./models/Scan.js";
@@ -178,6 +179,110 @@ app.post("/set-user", authRequired, async (req, res) => {
   } catch (err) {
     console.error("SET USER ERROR:", err);
     res.status(500).json({ error: "Failed to save user" });
+  }
+});
+
+app.post("/api/recommend-meal", authRequired, async (req, res) => {
+  try {
+    const { userId, email } = req.body || {};
+
+    if (userId && String(userId) !== String(req.userId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const query = userId
+      ? { _id: userId }
+      : email
+        ? { email: String(email).trim().toLowerCase() }
+        : { _id: req.userId };
+
+    const user = await User.findOne(query).lean();
+    if (!user) return res.status(404).json({ error: "Not found" });
+
+    const dailyCalorieTarget = calculateTDEE(user.profile) || null;
+    if (!dailyCalorieTarget) {
+      return res.status(400).json({ error: "Profile incomplete for TDEE" });
+    }
+
+    const goal = String(user.profile?.goal || "maintain").toLowerCase();
+    const allergies = Array.isArray(user.profile?.allergies) ? user.profile.allergies : [];
+    const dailyWaterLiters = user.dailyWaterLiters ?? null;
+
+    let adjustedDailyCalories = dailyCalorieTarget;
+    if (goal === "loss" || goal === "lose") adjustedDailyCalories -= 500;
+    else if (goal === "gain") adjustedDailyCalories += 500;
+
+    const targetMealCalories = Math.max(0, Math.round(adjustedDailyCalories / 3));
+
+    const templates = [
+      ["dal", "roti", "sambar"],
+      ["rajma", "white rice", "sambar"],
+      ["poha", "omelette"],
+      ["idli", "sambar"],
+      ["upma", "curd"],
+      ["dosa", "sambar"],
+      ["chicken curry", "roti"],
+      ["paneer butter masala", "roti"]
+    ];
+
+    const normalizedAllergies = allergies.map((a) => String(a).toLowerCase()).filter(Boolean);
+    const containsAllergy = (name) => {
+      const n = String(name || "").toLowerCase();
+      return normalizedAllergies.some((a) => n.includes(a));
+    };
+
+    const buildMeal = (names) => {
+      const items = names
+        .filter((n) => !containsAllergy(n))
+        .map((n) => {
+          const nu = lookupNutrition(n);
+          if (!nu) return null;
+          return {
+            name: n,
+            calories: Number(nu.calories) || 0,
+            protein: Number(nu.protein) || 0,
+            carbs: Number(nu.carbs) || 0
+          };
+        })
+        .filter(Boolean);
+
+      return items;
+    };
+
+    let base = buildMeal(templates[Math.floor(Math.random() * templates.length)]);
+    if (!base.length) {
+      const fallback = ["dal", "roti", "sambar", "idli", "upma", "white rice", "rajma"];
+      base = buildMeal(fallback);
+    }
+
+    const baseCalories = base.reduce((s, it) => s + (it.calories || 0), 0);
+    if (!baseCalories || targetMealCalories <= 0) {
+      return res.json({
+        foods: [],
+        targetMealCalories,
+        dailyWaterLiters
+      });
+    }
+
+    const factor = targetMealCalories / baseCalories;
+    const scaled = base.map((it) => ({
+      name: it.name,
+      calories: Math.max(0, Math.round(it.calories * factor)),
+      protein: Math.max(0, Math.round(it.protein * factor)),
+      carbs: Math.max(0, Math.round(it.carbs * factor))
+    }));
+
+    const sumScaled = scaled.reduce((s, it) => s + it.calories, 0);
+    const delta = targetMealCalories - sumScaled;
+    if (scaled.length) scaled[scaled.length - 1].calories = Math.max(0, scaled[scaled.length - 1].calories + delta);
+
+    return res.json({
+      foods: scaled,
+      targetMealCalories,
+      dailyWaterLiters
+    });
+  } catch {
+    return res.status(500).json({ error: "Recommend meal failed" });
   }
 });
 
