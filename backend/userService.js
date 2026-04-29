@@ -1,17 +1,3 @@
-// backend/userService.js
-
-// 🧠 In-memory user storage
-const user = {
-  age: null,
-  gender: null,
-  height: null,
-  weight: null,
-  activity: null,
-  goal: "maintain",
-  allergies: []
-};
-
-// 🔢 Activity multipliers
 const activityMap = {
   sedentary: 1.2,
   light: 1.375,
@@ -19,45 +5,42 @@ const activityMap = {
   active: 1.725
 };
 
-// 🧠 Calculate TDEE
-function calculateTDEE(user) {
-  if (!user.age || !user.gender || !user.height || !user.weight) {
+export function calculateTDEE(profile) {
+  if (!profile?.age || !profile?.gender || !profile?.height || !profile?.weight) {
     return null;
   }
 
   let bmr;
 
-  if (user.gender.toLowerCase() === "male") {
-    bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age + 5;
+  if (String(profile.gender).toLowerCase() === "male") {
+    bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age + 5;
   } else {
-    bmr = 10 * user.weight + 6.25 * user.height - 5 * user.age - 161;
+    bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age - 161;
   }
 
-  const activityMultiplier = activityMap[user.activity] || 1.2;
+  const activityMultiplier = activityMap[profile.activity] || 1.2;
 
   let tdee = bmr * activityMultiplier;
 
-  // 🎯 Goal adjustment
-  if (user.goal === "loss") {
+  if (profile.goal === "loss") {
     tdee -= 500;
-  } else if (user.goal === "gain") {
+  } else if (profile.goal === "gain") {
     tdee += 500;
   }
 
   return Math.round(tdee);
 }
 
-// 🍽️ Filter food based on user
-function filterFood(foodList) {
-  // If user not set → return original
-  if (!user.age || !user.weight) {
+export function filterFood(foodList, profile) {
+  if (!profile?.age || !profile?.weight) {
     return foodList;
   }
 
-  const tdee = calculateTDEE(user);
+  const tdee = calculateTDEE(profile);
+  if (!tdee) return foodList;
   const perMealCalories = tdee / 3;
 
-  const allergies = user.allergies.map(a => a.toLowerCase());
+  const allergies = (profile.allergies || []).map(a => String(a).toLowerCase());
 
   return foodList.filter(food => {
     const ingredients = food.ingredients?.toLowerCase() || "";
@@ -75,9 +58,3 @@ function filterFood(foodList) {
     return true;
   });
 }
-
-module.exports = {
-  user,
-  calculateTDEE,
-  filterFood
-};
