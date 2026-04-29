@@ -4,66 +4,130 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import mongoose from "mongoose";
 
+import { getAIRecommendation } from "./ai.js";
 import { detectFood } from "./detector.js";
 import { getNutritionFromSpoonacular } from "./spoonacular.js";
 import { getNutrition } from "./openfoodfacts.js";
 import { generateAdvice } from "./advice.js";
 
-const app = express();
+import Scan from "./models/Scan.js";
 
-const upload = multer({
-  limits: { fileSize: 8 * 1024 * 1024 }
-});
+// ✅ FIXED IMPORT (IMPORTANT)
+import { user, calculateTDEE, filterFood } from "./userService.js";
+
+const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ HEALTH
-app.get("/health", (req, res) => res.json({ ok: true }));
-
-// ✅ TRACKER
-const dailyLog = [];
-
-app.get("/tracker", (req, res) => {
-  const today = new Date().toDateString();
-
-  const todayItems = dailyLog.filter(
-    (item) => new Date(item.timestamp).toDateString() === today
-  );
-
-  const totals = todayItems.reduce(
-    (acc, item) => ({
-      calories: acc.calories + (Number(item.calories) || 0),
-      protein: acc.protein + (Number(item.protein) || 0),
-      carbs: acc.carbs + (Number(item.carbs) || 0)
-    }),
-    { calories: 0, protein: 0, carbs: 0 }
-  );
-
-  res.json({ items: todayItems, totals });
+// 🚀 MULTER
+const upload = multer({
+  limits: { fileSize: 8 * 1024 * 1024 }
 });
 
-// ✅ ADD ENTRY
-app.post("/track", (req, res) => {
-  const { food, calories, protein, carbs } = req.body;
+// 🔥 CONNECT MONGODB
+mongoose.connect("mongodb://127.0.0.1:27017/messai")
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch(err => console.log("❌ Mongo Error:", err));
 
-  if (!food || calories == null) {
-    return res.status(400).json({ error: "Missing food or calories" });
+// ✅ HEALTH CHECK
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+
+// 🚀 SET USER PROFILE
+app.post('/set-user', (req, res) => {
+  try {
+    const { age, gender, height, weight, activity, goal, allergies } = req.body;
+
+    if (!age || !gender || !height || !weight || !activity) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    user.age = Number(age);
+    user.gender = gender;
+    user.height = Number(height);
+    user.weight = Number(weight);
+    user.activity = activity;
+    user.goal = goal || "maintain";
+    user.allergies = allergies || [];
+
+    return res.json({
+      message: "User data saved successfully",
+      tdee: calculateTDEE(user)
+    });
+
+  } catch (err) {
+    console.error("SET USER ERROR:", err);
+    res.status(500).json({ error: "Failed to save user" });
   }
-
-  const entry = {
-    id: Date.now(),
-    food,
-    calories: Number(calories),
-    protein: Number(protein) || 0,
-    carbs: Number(carbs) || 0,
-    timestamp: new Date().toISOString()
-  };
-
-  dailyLog.push(entry);
-  res.json({ success: true, entry });
 });
+
+
+// 🚀 TRACKER (WITH AI)
+app.get("/tracker", async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const data = await Scan.find({
+      createdAt: { $gte: today }
+    });
+
+    let totals = {
+      calories: 0,
+      protein: 0,
+      carbs: 0
+    };
+
+    data.forEach(item => {
+      totals.calories += item.calories || 0;
+      totals.protein += item.protein || 0;
+      totals.carbs += item.carbs || 0;
+    });
+
+    const ai = getAIRecommendation(totals);
+
+    res.json({
+      items: data,
+      totals,
+      ai
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Tracker failed" });
+  }
+});
+
+
+// 🚀 MANUAL TRACK ENTRY
+app.post("/track", async (req, res) => {
+  try {
+    const { food, calories, protein, carbs } = req.body;
+
+    if (!food || calories == null) {
+      return res.status(400).json({ error: "Missing food or calories" });
+    }
+
+    const entry = await Scan.create({
+      food,
+      calories: Number(calories),
+      protein: Number(protein) || 0,
+      carbs: Number(carbs) || 0
+    });
+
+    res.json({ success: true, entry });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Track failed" });
+  }
+});
+
 
 // 🔥 MAIN SCAN ROUTE
 app.post("/scan-food", upload.single("image"), async (req, res) => {
@@ -72,21 +136,15 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
   }
 
   try {
-    // ✅ DETECTION (FIXED)
     const top = detectFood(req, 3);
     const food = top[0].label;
-
-    console.log("Detected:", top);
-    console.log("Final Food:", food);
 
     let nutrition;
 
     try {
-      // 🥇 Spoonacular
       nutrition = await getNutritionFromSpoonacular(food);
     } catch (err) {
       console.log("Spoonacular failed → fallback");
-      // 🥈 OpenFoodFacts
       nutrition = await getNutrition(food);
     }
 
@@ -96,10 +154,30 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
       carbs: nutrition.carbs
     });
 
-    // ✅ FINAL RESPONSE (FIXED)
+    // 💾 SAVE
+    await Scan.create({
+      food,
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs,
+      fats: nutrition.fats || 0
+    });
+
+    // ✅ PERSONALIZATION
+    const foodList = [
+      {
+        name: food,
+        calories: nutrition.calories,
+        ingredients: food
+      }
+    ];
+
+    const filteredFood = filterFood(foodList);
+
     res.json({
-      food: food,            // ✅ STRING
-      alternatives: top,     // ✅ ARRAY
+      food,
+      filteredFood,
+      alternatives: top,
       calories: nutrition.calories,
       protein: nutrition.protein,
       carbs: nutrition.carbs,
@@ -118,8 +196,10 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
   }
 });
 
+
+// 🚀 START SERVER
 const port = process.env.PORT || 5000;
 
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}`);
 });
