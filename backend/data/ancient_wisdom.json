@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Amla",
+    "timeOfDay": "morning",
+    "ancientUse": "Rasayana for vitality; supports digestion and immunity in Ayurveda.",
+    "modernScience": "Rich in vitamin C and polyphenols; studied for antioxidant and metabolic support."
+  },
+  {
+    "name": "Tulsi (Holy Basil)",
+    "timeOfDay": "morning",
+    "ancientUse": "Used to support respiratory health and clarity; considered an adaptogenic herb.",
+    "modernScience": "Contains eugenol and other compounds; studied for stress response and antimicrobial activity."
+  },
+  {
+    "name": "Ginger (Adrak)",
+    "timeOfDay": "morning",
+    "ancientUse": "Kindles agni (digestive fire) and helps reduce heaviness after meals.",
+    "modernScience": "Gingerols may support digestion and help with nausea; researched for anti-inflammatory effects."
+  },
+  {
+    "name": "Ashwagandha",
+    "timeOfDay": "evening",
+    "ancientUse": "Traditionally used to support strength, recovery, and calm the nervous system.",
+    "modernScience": "Withanolides studied for stress reduction and sleep quality in some clinical trials."
+  },
+  {
+    "name": "Brahmi (Bacopa)",
+    "timeOfDay": "evening",
+    "ancientUse": "Used for memory and mental calm; supports medhya (cognitive) balance.",
+    "modernScience": "Bacosides studied for cognitive support and stress modulation."
+  },
+  {
+    "name": "Triphala",
+    "timeOfDay": "evening",
+    "ancientUse": "Classic blend for gentle detox support and regular digestion.",
+    "modernScience": "Polyphenol-rich; studied for gut motility and antioxidant properties."
+  },
+  {
+    "name": "Jeera (Cumin)",
+    "timeOfDay": "afternoon",
+    "ancientUse": "Used to aid digestion and reduce gas after heavier meals.",
+    "modernScience": "Cumin essential oils studied for digestive support and possible glycemic benefits."
+  },
+  {
+    "name": "Saunf (Fennel)",
+    "timeOfDay": "afternoon",
+    "ancientUse": "Traditionally chewed after meals to freshen breath and support digestion.",
+    "modernScience": "Anethole studied for digestive comfort and antispasmodic effects."
+  },
+  {
+    "name": "Cardamom (Elaichi)",
+    "timeOfDay": "afternoon",
+    "ancientUse": "Used for aromatic digestion support and to reduce heaviness.",
+    "modernScience": "Contains cineole and terpenes; researched for antioxidant and digestive benefits."
+  },
+  {
+    "name": "Turmeric (Haldi)",
+    "timeOfDay": "morning",
+    "ancientUse": "Supports healthy inflammation balance and helps clear ama (metabolic toxins).",
+    "modernScience": "Curcumin studied for anti-inflammatory and antioxidant activity; absorption improves with fat/pepper."
+  }
+]
