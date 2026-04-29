@@ -5,6 +5,8 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import mongoose from "mongoose";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 import { getAIRecommendation } from "./ai.js";
 import { detectFood } from "./detector.js";
@@ -13,14 +15,36 @@ import { getNutrition } from "./openfoodfacts.js";
 import { generateAdvice } from "./advice.js";
 
 import Scan from "./models/Scan.js";
+import User from "./models/User.js";
 
-// ✅ FIXED IMPORT (IMPORTANT)
-import { user, calculateTDEE, filterFood } from "./userService.js";
+import { calculateTDEE, filterFood } from "./userService.js";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+
+function signToken(userId) {
+  return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+function authRequired(req, res, next) {
+  const header = req.headers.authorization || "";
+  const [type, token] = header.split(" ");
+  if (type !== "Bearer" || !token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.userId = payload.sub;
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+}
 
 // 🚀 MULTER
 const upload = multer({
@@ -37,9 +61,74 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/auth/register", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      return res.status(400).json({ error: "Invalid email" });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+
+    const exists = await User.findOne({ email: normalizedEmail }).lean();
+    if (exists) {
+      return res.status(409).json({ error: "Email already registered" });
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    const user = await User.create({ email: normalizedEmail, passwordHash });
+
+    const token = signToken(user._id.toString());
+    return res.json({ token, user: user.toJSON() });
+  } catch (err) {
+    return res.status(500).json({ error: "Register failed" });
+  }
+});
+
+app.post("/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const ok = await bcrypt.compare(String(password), user.passwordHash);
+    if (!ok) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = signToken(user._id.toString());
+    return res.json({ token, user: user.toJSON() });
+  } catch {
+    return res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.get("/auth/me", authRequired, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: "Not found" });
+    return res.json({ user: user.toJSON() });
+  } catch {
+    return res.status(500).json({ error: "Failed" });
+  }
+});
 
 // 🚀 SET USER PROFILE
-app.post('/set-user', (req, res) => {
+app.post("/set-user", authRequired, async (req, res) => {
   try {
     const { age, gender, height, weight, activity, goal, allergies } = req.body;
 
@@ -47,17 +136,27 @@ app.post('/set-user', (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    user.age = Number(age);
-    user.gender = gender;
-    user.height = Number(height);
-    user.weight = Number(weight);
-    user.activity = activity;
-    user.goal = goal || "maintain";
-    user.allergies = allergies || [];
+    const profile = {
+      age: Number(age),
+      gender: String(gender),
+      height: Number(height),
+      weight: Number(weight),
+      activity: String(activity),
+      goal: goal || "maintain",
+      allergies: Array.isArray(allergies) ? allergies : []
+    };
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: { profile } },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: "Not found" });
 
     return res.json({
       message: "User data saved successfully",
-      tdee: calculateTDEE(user)
+      tdee: calculateTDEE(user.profile),
+      user: user.toJSON()
     });
 
   } catch (err) {
@@ -68,13 +167,14 @@ app.post('/set-user', (req, res) => {
 
 
 // 🚀 TRACKER (WITH AI)
-app.get("/tracker", async (req, res) => {
+app.get("/tracker", authRequired, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const data = await Scan.find({
-      createdAt: { $gte: today }
+      createdAt: { $gte: today },
+      userId: req.userId
     });
 
     let totals = {
@@ -105,7 +205,7 @@ app.get("/tracker", async (req, res) => {
 
 
 // 🚀 MANUAL TRACK ENTRY
-app.post("/track", async (req, res) => {
+app.post("/track", authRequired, async (req, res) => {
   try {
     const { food, calories, protein, carbs } = req.body;
 
@@ -114,6 +214,7 @@ app.post("/track", async (req, res) => {
     }
 
     const entry = await Scan.create({
+      userId: req.userId,
       food,
       calories: Number(calories),
       protein: Number(protein) || 0,
@@ -130,7 +231,7 @@ app.post("/track", async (req, res) => {
 
 
 // 🔥 MAIN SCAN ROUTE
-app.post("/scan-food", upload.single("image"), async (req, res) => {
+app.post("/scan-food", authRequired, upload.single("image"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No image uploaded" });
   }
@@ -154,8 +255,12 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
       carbs: nutrition.carbs
     });
 
+    const user = await User.findById(req.userId).lean();
+    const profile = user?.profile || null;
+
     // 💾 SAVE
     await Scan.create({
+      userId: req.userId,
       food,
       calories: nutrition.calories,
       protein: nutrition.protein,
@@ -172,7 +277,7 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
       }
     ];
 
-    const filteredFood = filterFood(foodList);
+    const filteredFood = filterFood(foodList, profile);
 
     res.json({
       food,
@@ -196,6 +301,23 @@ app.post("/scan-food", upload.single("image"), async (req, res) => {
   }
 });
 
+app.get("/history", authRequired, async (req, res) => {
+  try {
+    const items = await Scan.find({ userId: req.userId }).sort({ createdAt: -1 }).limit(500);
+    const totals = items.reduce(
+      (acc, it) => {
+        acc.calories += it.calories || 0;
+        acc.protein += it.protein || 0;
+        acc.carbs += it.carbs || 0;
+        return acc;
+      },
+      { calories: 0, protein: 0, carbs: 0 }
+    );
+    return res.json({ items, totals });
+  } catch {
+    return res.status(500).json({ error: "History failed" });
+  }
+});
 
 // 🚀 START SERVER
 const port = process.env.PORT || 5000;
