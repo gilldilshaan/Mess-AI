@@ -4,6 +4,9 @@ const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true, index: true, trim: true, lowercase: true },
     passwordHash: { type: String, required: true },
+    city: { type: String, default: "" },
+    dailyWaterLiters: { type: Number, default: null },
+    currentTemperature: { type: Number, default: null },
     profile: {
       age: { type: Number, default: null },
       gender: { type: String, default: null },
@@ -25,4 +28,3 @@ userSchema.set("toJSON", {
 });
 
 export default mongoose.model("User", userSchema);
-
