@@ -17,7 +17,7 @@ import { generateAdvice } from "./advice.js";
 import Scan from "./models/Scan.js";
 import User from "./models/User.js";
 
-import { calculateTDEE, filterFood } from "./userService.js";
+import { calculateDailyWaterLiters, calculateTDEE, fetchCurrentTemperatureC, filterFood } from "./userService.js";
 
 const app = express();
 
@@ -130,7 +130,7 @@ app.get("/auth/me", authRequired, async (req, res) => {
 // 🚀 SET USER PROFILE
 app.post("/set-user", authRequired, async (req, res) => {
   try {
-    const { age, gender, height, weight, activity, goal, allergies } = req.body;
+    const { age, gender, height, weight, activity, goal, allergies, city } = req.body;
 
     if (!age || !gender || !height || !weight || !activity) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -146,9 +146,12 @@ app.post("/set-user", authRequired, async (req, res) => {
       allergies: Array.isArray(allergies) ? allergies : []
     };
 
+    const currentTemperature = await fetchCurrentTemperatureC(city);
+    const dailyWaterLiters = calculateDailyWaterLiters(profile.weight, currentTemperature);
+
     const user = await User.findByIdAndUpdate(
       req.userId,
-      { $set: { profile } },
+      { $set: { profile, city: city ? String(city).trim() : null, dailyWaterLiters } },
       { new: true }
     );
     if (!user) return res.status(404).json({ error: "Not found" });
@@ -156,6 +159,8 @@ app.post("/set-user", authRequired, async (req, res) => {
     return res.json({
       message: "User data saved successfully",
       tdee: calculateTDEE(user.profile),
+      dailyWaterLiters: user.dailyWaterLiters,
+      currentTemperature,
       user: user.toJSON()
     });
 
